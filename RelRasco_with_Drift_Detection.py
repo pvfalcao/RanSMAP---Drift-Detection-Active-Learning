@@ -26,9 +26,9 @@ from frouros.detectors.data_drift import KSTest
 from sklearn.metrics import accuracy_score, precision_score, recall_score, f1_score, classification_report, confusion_matrix
 
 #Importing data
-complete = 'C:/Users/pvffa/Downloads/combined_28(23+5)_features_30s_window_unused1_col.csv'
-variant = 'C:/Users/pvffa/Downloads/combined_28_features_30s_window_variants.csv'
-mix = 'C:/Users/pvffa/Downloads/combined_28_features_30s_window_mix.csv'
+complete = 'combined_28(23+5)_features_30s_window_unused1_col.csv'
+variant = 'combined_28_features_30s_window_variants.csv'
+mix = 'combined_28_features_30s_window_mix.csv'
 
 
 df_complete = pd.read_csv(complete)
