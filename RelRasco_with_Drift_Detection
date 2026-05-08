@@ -1,0 +1,179 @@
+import pandas as pd
+import numpy as np
+import pandas as pd
+import matplotlib.pyplot as plt
+from sklearn.model_selection import train_test_split
+from sklearn.model_selection import StratifiedKFold
+import torch.nn as nn
+import torch.optim as optim
+from torch.utils.data import Dataset, DataLoader
+from torch.utils.data import random_split
+from torch.utils.data import Subset
+from sklearn.model_selection import train_test_split
+from sklearn.ensemble import RandomForestClassifier
+from sklearn.metrics import classification_report
+from sklearn.metrics import confusion_matrix
+import seaborn as sns
+from sslearn.wrapper import RelRasco
+from sslearn.model_selection import artificial_ssl_dataset
+from sklearn.model_selection import StratifiedKFold
+from sklearn.metrics import accuracy_score
+from frouros.callbacks.batch import PermutationTestDistanceBased
+from frouros.detectors.data_drift import MMD
+from sklearn.model_selection import cross_val_score
+from sklearn.manifold import TSNE
+from frouros.detectors.data_drift import KSTest
+from sklearn.metrics import accuracy_score, precision_score, recall_score, f1_score, classification_report, confusion_matrix
+
+#Importing data
+complete = 'C:/Users/pvffa/Downloads/combined_28(23+5)_features_30s_window_unused1_col.csv'
+variant = 'C:/Users/pvffa/Downloads/combined_28_features_30s_window_variants.csv'
+mix = 'C:/Users/pvffa/Downloads/combined_28_features_30s_window_mix.csv'
+
+
+df_complete = pd.read_csv(complete)
+df_variant = df = pd.read_csv(variant)
+df_mix = pd.read_csv(mix)
+
+
+#Replacing Missing Values
+df_mix.fillna(-1, inplace=True) 
+df_complete.fillna(-1, inplace=True)
+df_variant.fillna(-1, inplace=True)
+
+#Preparing the features pre-processing
+from sklearn.preprocessing import StandardScaler, OneHotEncoder
+from sklearn.compose import ColumnTransformer
+from sklearn.pipeline import Pipeline
+
+categorical_features = ['category']
+numerical_features = ['T_s_r', 'T_s_w', 'V_s_r', 'V_s_w', 'H_s_w', 'C_4KB_r', 'C_2MB_r',
+       'C_MMIO_r', 'V_m_r', 'H_m_w', 'C_4KB_w', 'C_2MB_w', 'C_MMIO_w', 'V_m_w',
+       'H_m_rw', 'C_4KB_rw', 'C_2MB_rw', 'C_MMIO_rw', 'V_m_rw', 'C_4KB_x',
+       'C_2MB_x', 'C_MMIO_x', 'V_m_x']#, 
+       #'window_start', 'window_end']
+
+preprocessor = ColumnTransformer(
+    transformers=[
+        ('num', StandardScaler(), numerical_features)])#,
+        #('cat', OneHotEncoder(handle_unknown='ignore'), categorical_features)])
+
+
+# Create a dummy target variable for now, as the subtask is only data preparation
+df_mix['target'] = 0
+df_complete['target'] = 0
+df_variant['target'] = 0
+
+X_mix = df_mix.drop('target', axis=1)
+y_mix = df_mix['target']
+
+X_complete = df_complete.drop('target', axis=1)
+y_complete = df_complete['target']
+
+X_variant = df_variant.drop('target', axis=1)
+y_variant = df_variant['target']
+
+#Pre-processing
+
+X_complete_processed = preprocessor.fit_transform(X_complete)
+X_mix_processed = preprocessor.fit_transform(X_mix)
+X_variant_processed = preprocessor.fit_transform(X_variant)
+
+# Display the shape of the processed data
+print(X_mix_processed.shape)
+print(X_complete_processed.shape)
+print(X_variant_processed.shape)
+
+# Create the actual target variable: 1 for ransomware categories, 0 for benign and multi-classes
+ransomware_categories_complete = ['Conti', 'Darkside', 'LockBit', 'REvil', 'Ryuk', 'WannaCry']
+#df_complete['target'] = df_complete['category'].apply(lambda x: 1 if x in ransomware_categories else 0)
+df_complete['target'] = df_complete['category']
+y_complete = df_complete['target']
+
+
+ransomware_categories_mix = ['AESCrypt_Conti', 'AESCrypt_REvil', 'Firefox_Conti', 'Firefox_REvil', 'Office_REvil', 'SDelete_Conti', 'SDelete_REvil', 'Zip_Conti', 'Zip_REvil']
+y_mix = df_mix['category']
+
+ransomware_categories_variant = ['Conti_01', 'Conti_02', 'Conti_03', 'Conti_04', 'Conti_05', 'Conti_06', 'Conti_07']
+#df_variant['target'] = 1
+df_variant['target'] = 'Conti'
+y_variant = df_variant['target']
+
+
+X_train = X_complete_processed
+y_train = y_complete
+X_test = X_variant_processed
+y_test = y_variant
+
+#Model
+clf = RelRasco()
+
+#Variable for counting features
+counter = 0
+
+#Drift detector
+for i in range(X_train.shape[1]):
+    feature_idx = i
+    alpha = 0.01
+    # Define and fit detector
+    detector = KSTest()
+
+    X_train_numeric = pd.to_numeric(X_train[:, feature_idx], errors='coerce').reshape(-1, 1)
+    __ = detector.fit(X_train_numeric)
+    # Convert the feature column to numeric before comparing
+    X_test_numeric = pd.to_numeric(X_test[:, feature_idx], errors='coerce').reshape(-1, 1)
+    result, _ = detector.compare(X_test_numeric)
+
+    # Check if drift is taking place
+    if result.p_value <= alpha:
+            counter += 1
+
+if counter>(X_train.shape[1]/2):
+        print(f"More than half of features had data drift detected. Actually the count is {counter}")
+
+        
+        np.random.seed(42)
+
+        # Number of samples to add
+        n_add = int(0.2 * len(X_test))
+
+        # Random indices
+        indices = np.random.choice(len(X_test), size=n_add, replace=False)
+
+        # Samples to add
+        X_add = X_test[indices]
+        y_add = y_test[indices]
+
+        # Add to training set
+        X_train = np.concatenate([X_train, X_add], axis=0)
+        y_train = np.concatenate([y_train, y_add], axis=0)
+
+        # Remove from test set
+        X_test = np.delete(X_test, indices, axis=0)
+        y_test = np.delete(y_test, indices, axis=0)
+        print("Datasets updated")
+        
+
+for lr in [0.1, 0.2, 0.3, 0.4]:
+
+    X_ss, y_ss, X_unl, y_unl = artificial_ssl_dataset(X_train, y_train, lr)
+    clf.fit(X_ss, y_ss)
+
+        # Unlabeled score
+    print(f"[LR={lr}] Unlabeled score: {clf.score(X_unl, y_unl):.4f}")
+
+
+
+
+    y_pred = clf.predict(X_test)
+
+    accuracy = accuracy_score(y_test, y_pred)
+    precision = precision_score(y_test, y_pred, average='weighted')
+    recall = recall_score(y_test, y_pred, average='weighted')
+    f1 = f1_score(y_test, y_pred, average='weighted')
+
+    print(f"Accuracy: {accuracy:.4f}")
+    print(f"Precision (weighted): {precision:.4f}")
+    print(f"Recall (weighted): {recall:.4f}")
+    print(f"F1-score (weighted): {f1:.4f}")
+    print("\nClassification Report:\n", classification_report(y_test, y_pred))
